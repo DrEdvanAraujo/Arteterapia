@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Explorando Emoções com Cores e Formas (v3 - Editor 3D)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fabric.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+    <!-- Tippy.js CDN -->
+    <script src="https://unpkg.com/@popperjs/core@2/dist/umd/popper.min.js"></script>
+    <script src="https://unpkg.com/tippy.js@6/dist/tippy-bundle.umd.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/dist/tippy.css"/>
+    <!-- html2canvas CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- dat.GUI CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
+
+    <!-- Import Map for Three.js -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <style>
+        body { font-family: sans-serif; }
+        .canvas-container { width: 100%; height: 100%; position: relative; }
+        .color-button { width: 28px; height: 28px; border: 2px solid #ccc; cursor: pointer; transition: transform 0.1s ease; display: inline-block; }
+        .color-button:hover { transform: scale(1.1); }
+        .color-button.active { border-color: #000; border-width: 3px; }
+        #canvas-outer-container { background-color: #ffffff; min-height: 1000px; }
+        #c { border: 1px solid #ccc; }
+
+        .tool-button {
+            padding: 8px; background-color: #e5e7eb; border: 1px solid #d1d5db;
+            border-radius: 0.25rem; text-align: center; cursor: grab;
+            transition: background-color 0.2s ease; min-height: 40px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.1rem; user-select: none;
+        }
+        .tool-button:hover { background-color: #d1d5db; }
+        .tool-button.dragging { opacity: 0.5; }
+
+        /* Removemos o bloco do Visualizador 3D do painel esquerdo */
+
+        /* Styling dat.GUI no container 3D */
+        #shape-selector-3d .dg.main {
+          position: static !important;  /* Deixa seguir o fluxo do DOM */
+          width: 100% !important;        /* Ocupa toda a largura do painel */
+          max-width: 100% !important;
+          z-index: 2;
+          opacity: 1;
+          margin-top: 20px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div class="container mx-auto p-4 min-h-screen flex flex-col md:flex-row gap-4">
+
+        <!-- Painel Esquerdo: Ferramentas (sem a visualização 3D e o botão Preencher) -->
+        <div class="w-full md:w-1/4 lg:w-1/5 bg-white p-4 rounded shadow space-y-4 flex flex-col overflow-y-auto left-panel">
+            <h2 class="text-xl font-semibold mb-2 text-gray-700 text-center">Ferramentas</h2>
+
+            <!-- Cores -->
+            <div>
+                <h3 class="text-lg font-medium mb-2 text-gray-600">Cores</h3>
+                <div id="color-palette" class="flex flex-wrap gap-1 justify-center"></div>
+            </div>
+
+            <!-- Modo Desenho e Editor de Cor (mantido)-->
+            <div class="border-t pt-4 space-y-2">
+                <h3 class="text-lg font-medium text-gray-600">Desenho Livre</h3>
+                <button id="toggleDrawingMode" class="w-full py-1 px-3 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition">
+                    Ativar Desenho
+                </button>
+                <div class="flex gap-2">
+                    <button id="undoBtn" class="w-1/3 py-1 px-3 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 transition">
+                        Desfazer
+                    </button>
+                    <button id="redoBtn" class="w-1/3 py-1 px-3 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 transition">
+                        Avançar
+                    </button>
+                    <button id="addTextboxBtn" class="w-1/3 py-1 px-3 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 transition">
+                        Caixa de Texto
+                    </button>
+                </div>
+                <div id="drawingControls" class="space-y-2 hidden">
+                    <label for="brushSelector" class="block text-sm font-medium text-gray-700">Pincel:</label>
+                    <select id="brushSelector" class="w-full p-2 border border-gray-300 rounded bg-white text-sm">
+                        <option value="pencil">Lápis (Pencil)</option>
+                        <option value="calligraphy">Caligrafia (Simulado)</option>
+                        <option value="spray">Spray</option>
+                        <option value="marker">Marcador (Simulado)</option>
+                        <option value="crayon">Giz de Cera (Simulado)</option>
+                    </select>
+
+                    <label for="brushWidth" class="block text-sm font-medium text-gray-700">Espessura:</label>
+                    <div class="flex items-center gap-2">
+                        <input type="range" id="brushWidth" min="1" max="50" value="5" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                        <span id="brushWidthValue" class="text-sm font-semibold w-8 text-right">5</span>
+                    </div>
+                    <label for="brushOpacity" class="block text-sm font-medium text-gray-700">Opacidade:</label>
+                    <div class="flex items-center gap-2">
+                        <input type="range" id="brushOpacity" min="0.1" max="1" step="0.1" value="1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                        <span id="brushOpacityValue" class="text-sm font-semibold w-8 text-right">1.0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Formas 2D -->
+            <div class="border-t pt-4">
+                <h3 class="text-lg font-medium mb-2 text-gray-600">Formas 2D</h3>
+                <div id="shape-selector-2d" class="grid grid-cols-3 gap-2">
+                     <button draggable="true" data-shape="circle" class="tool-button" title="Círculo">●</button>
+                     <button draggable="true" data-shape="square" class="tool-button" title="Quadrado">■</button>
+                     <button draggable="true" data-shape="triangle" class="tool-button" title="Triângulo">▲</button>
+                     <button draggable="true" data-shape="ellipse" class="tool-button" title="Elipse">⬬</button>
+                     <button draggable="true" data-shape="line" class="tool-button" title="Linha">|</button>
+                     <button draggable="true" data-shape="star" class="tool-button" title="Estrela">★</button>
+                </div>
+            </div>
+
+            <!-- Gerador Kenë de Miçangas (removemos o botão Preencher) -->
+            <div id="beadsTool" class="border-t pt-4">
+                <h3 class="text-lg font-medium mb-2 text-gray-600">Pixelizar Imagem</h3>
+                <input type="file" id="imageInput" accept="image/*" class="w-full p-2 border border-gray-300 rounded text-sm mb-2">
+                <label for="resolution" class="block text-sm font-medium text-gray-600">
+                  Quantidade de Miçangas por lado: <span id="resValue">48</span>
+                </label>
+                <input type="range" id="resolution" min="1" max="256" value="48" class="w-full mb-2">
+                <!-- O canvas original do gerador permanece no HTML, mas o resultado será exibido na Tela de Expressão -->
+                <canvas id="beadCanvas" width="512" height="512" class="bg-white border border-gray-400" style="display: none;"></canvas>
+            </div>
+
+            <button id="clearCanvasBtn" class="w-full mt-auto px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition sticky bottom-0">
+                Limpar Tela
+            </button>
+        </div>
+
+        <!-- Área Central: Canvas (Fabric.js) -->
+        <div class="w-full md:w-1/2 lg:w-3/5 bg-white p-4 rounded shadow flex flex-col">
+            <h2 class="text-xl font-semibold mb-4 text-center text-gray-700">Sua Tela de Expressão</h2>
+            <div id="canvas-outer-container" class="flex-grow border border-gray-300 overflow-hidden flex items-center justify-center relative cursor-default"
+                 ondragover="event.preventDefault()">
+                <div id="canvas-container" class="absolute inset-0">
+                    <canvas id="c"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Painel Direito: Nova área com Visualizador 3D e Exportação -->
+        <div class="w-full md:w-1/4 lg:w-1/5 bg-white p-4 rounded shadow space-y-4 flex flex-col overflow-y-auto right-panel">
+             <h2 class="text-xl font-semibold mb-2 text-gray-700 text-center">Visualizador 3D e Exportação</h2>
+             
+             <!-- Botões de Exportação (movidos para antes do visualizador 3D) -->
+             <div class="mt-2 flex-shrink-0">
+                 <h3 class="text-lg font-medium mb-1 text-gray-600">Exportar Imagem</h3>
+                 <div class="flex gap-2">
+                     <button id="savePngBtn" class="w-1/2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">
+                         Salvar PNG
+                     </button>
+                     <button id="saveJpegBtn" class="w-1/2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">
+                         Salvar JPEG
+                     </button>
+                 </div>
+             </div>
+
+             <!-- Visualizador 3D transferido -->
+             <div id="shape-selector-3d-container" class="border-t pt-4">
+                 <div id="shape-selector-3d" class="h-64 bg-black rounded"></div>
+                 <p class="text-xs text-gray-500 mt-1 text-center">Gire, edite e pulse a forma 3D</p>
+             </div>
+        </div>
+    </div>
+
+    <!-- Script Principal (Fabric.js e Lógica da Aplicação) -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- Fabric.js Setup and Logic ---
+            const canvasOuterContainer = document.getElementById('canvas-outer-container');
+            const canvasContainer = document.getElementById('canvas-container');
+            const canvasElement = document.getElementById('c');
+            const objectControls = document.getElementById('objectControls');
+            const drawingControls = document.getElementById('drawingControls');
+            const toggleDrawingModeBtn = document.getElementById('toggleDrawingMode');
+
+            const fabricCanvas = new fabric.Canvas('c', {
+                backgroundColor: '#f0f0f0',
+                selection: true,
+                stopContextMenu: true,
+                isDrawingMode: false
+            });
+            // Disponibiliza o Fabric para o script do Gerador Kenë
+            window.fabricCanvas = fabricCanvas;
+
+            // --- Redimensionamento Fabric.js Canvas ---
+            function resizeFabricCanvas() {
+                const width = canvasContainer.offsetWidth;
+                const height = canvasContainer.offsetHeight;
+                if (width > 0 && height > 0) {
+                    fabricCanvas.setWidth(width);
+                    fabricCanvas.setHeight(height);
+                    fabricCanvas.renderAll();
+                }
+            }
+            const fabricResizeObserver = new ResizeObserver(() => window.requestAnimationFrame(resizeFabricCanvas));
+            fabricResizeObserver.observe(canvasOuterContainer);
+            resizeFabricCanvas();
+
+            // --- Estado da Aplicação ---
+            let activeColor = '#3b82f6';
+
+            // --- Dicionários de Pincéis ---
+            const brushes = {
+                 pencil: new fabric.PencilBrush(fabricCanvas),
+                 spray: new fabric.SprayBrush(fabricCanvas),
+                 calligraphy: new fabric.PencilBrush(fabricCanvas),
+                 marker: new fabric.PencilBrush(fabricCanvas),
+                 crayon: new fabric.PencilBrush(fabricCanvas)
+             };
+             brushes.calligraphy.width = 3;
+             brushes.marker.strokeLineCap = 'square';
+             brushes.marker.opacity = 0.8;
+             brushes.crayon.strokeLineCap = 'round';
+             brushes.crayon.opacity = 0.7;
+
+            // --- Histórico para Desfazer/Avançar ---
+            let undoStack = [];
+            let redoStack = [];
+            let isRestoring = false;
+            function pushState() {
+                if (isRestoring) return;
+                undoStack.push(JSON.stringify(fabricCanvas));
+                // Limpa o histórico de avanço ao registrar novo estado
+                redoStack = [];
+            }
+            pushState();
+            fabricCanvas.on('object:added', pushState);
+            fabricCanvas.on('object:modified', pushState);
+            fabricCanvas.on('object:removed', pushState);
+
+            document.getElementById('undoBtn').addEventListener('click', () => {
+                if (undoStack.length > 1) {
+                    isRestoring = true;
+                    redoStack.push(undoStack.pop());
+                    const prevState = undoStack[undoStack.length - 1];
+                    fabricCanvas.loadFromJSON(prevState, () => {
+                        fabricCanvas.renderAll();
+                        isRestoring = false;
+                    });
+                }
+            });
+            document.getElementById('redoBtn').addEventListener('click', () => {
+                if (redoStack.length > 0) {
+                    isRestoring = true;
+                    const nextState = redoStack.pop();
+                    undoStack.push(nextState);
+                    fabricCanvas.loadFromJSON(nextState, () => {
+                        fabricCanvas.renderAll();
+                        isRestoring = false;
+                    });
+                }
+            });
+
+            // Botão para inserir Caixa de Texto
+            document.getElementById('addTextboxBtn').addEventListener('click', () => {
+                const textbox = new fabric.Textbox('Novo Texto', {
+                    left: 100,
+                    top: 100,
+                    width: 200,
+                    fontSize: 20,
+                    fill: activeColor
+                });
+                fabricCanvas.add(textbox);
+                fabricCanvas.setActiveObject(textbox);
+                pushState();
+            });
+
+            // --- Populando Ferramentas (Cores) ---
+            const colorPalette = document.getElementById('color-palette');
+            const colorMeanings = {
+                '#ef4444': { name: 'Vermelho', meaning: 'Vitalidade, paixão, energia, raiva.', chromo: 'Estimulante, aquece, energiza circulação e força vital. Cuidado: excesso pode gerar agitação.' },
+                '#f97316': { name: 'Laranja', meaning: 'Entusiasmo, criatividade, alegria.', chromo: 'Alegria, regeneração, estimula criatividade e apetite. Traz coragem.' },
+                '#eab308': { name: 'Amarelo', meaning: 'Otimismo, luz, intelecto, ansiedade.', chromo: 'Estimula intelecto, clareza mental, otimismo. Associado ao sistema nervoso. Cuidado: excesso pode gerar ansiedade.' },
+                '#22c55e': { name: 'Verde', meaning: 'Natureza, cura, tranquilidade, crescimento.', chromo: 'Equilíbrio, harmonia, calma, cura. Associado ao coração. Relaxante e revitalizante.' },
+                '#3b82f6': { name: 'Azul', meaning: 'Calma, serenidade, introspecção, frio.', chromo: 'Calmante, tranquilidade, paz, serenidade. Reduz stress e tensão. Associado à comunicação. Cuidado: excesso pode levar à melancolia.' },
+                '#8b5cf6': { name: 'Violeta', meaning: 'Espiritualidade, intuição, mistério.', chromo: 'Transmutação, intuição, espiritualidade. Purifica energias e acalma a mente.' },
+                '#ec4899': { name: 'Rosa', meaning: 'Amor, delicadeza, compaixão.', chromo: 'Amor incondicional, compaixão, afeto, suavidade. Harmoniza relacionamentos.' },
+                '#737373': { name: 'Cinza', meaning: 'Neutralidade, equilíbrio, tédio.', chromo: 'Neutralidade. Pode indicar falta de energia ou necessidade de equilíbrio, mas também seriedade.' },
+                '#000000': { name: 'Preto', meaning: 'Profundidade, desconhecido, luto, poder.', chromo: 'Absorção, proteção, introspecção profunda. Pode indicar peso, luto ou o inconsciente.' },
+                '#ffffff': { name: 'Branco', meaning: 'Paz, pureza, vazio, luz.', chromo: 'Pureza, paz, clareza, limpeza. Amplifica outras cores. Pode indicar um novo começo ou vazio.' },
+            };
+            Object.entries(colorMeanings).forEach(([hex, data]) => {
+                const button = document.createElement('button');
+                button.classList.add('color-button', 'rounded-full');
+                button.style.backgroundColor = hex;
+                if (hex === '#ffffff') button.style.borderColor = '#000000';
+                button.dataset.color = hex;
+                if (hex === activeColor) button.classList.add('active');
+                button.addEventListener('click', (e) => {
+                    activeColor = e.target.dataset.color;
+                    document.querySelectorAll('#color-palette .color-button').forEach(btn => btn.classList.remove('active'));
+                    e.target.classList.add('active');
+                    if (fabricCanvas.isDrawingMode) {
+                        fabricCanvas.freeDrawingBrush.color = activeColor;
+                    } else {
+                        const selectedObject = fabricCanvas.getActiveObject();
+                        if (selectedObject) {
+                            updateShapeAppearance(selectedObject);
+                            fabricCanvas.renderAll();
+                        }
+                    }
+                });
+                colorPalette.appendChild(button);
+                tippy(button, { content: `<strong>${data.name}</strong><br><small>${data.meaning}</small>`, allowHTML: true, placement: 'top', animation: 'shift-away-subtle' });
+            });
+
+            // --- Modo Desenho e Seleção de Pincel ---
+            const brushSelector = document.getElementById('brushSelector');
+            const brushWidthSlider = document.getElementById('brushWidth');
+            const brushWidthValue = document.getElementById('brushWidthValue');
+            const brushOpacitySlider = document.getElementById('brushOpacity');
+            const brushOpacityValue = document.getElementById('brushOpacityValue');
+
+            fabricCanvas.freeDrawingBrush = brushes.pencil;
+            fabricCanvas.freeDrawingBrush.color = activeColor;
+            fabricCanvas.freeDrawingBrush.width = parseInt(brushWidthSlider.value, 10);
+
+            toggleDrawingModeBtn.addEventListener('click', () => {
+                fabricCanvas.isDrawingMode = !fabricCanvas.isDrawingMode;
+                if (fabricCanvas.isDrawingMode) {
+                    toggleDrawingModeBtn.textContent = 'Desativar Desenho';
+                    toggleDrawingModeBtn.classList.replace('bg-blue-500', 'bg-red-500');
+                    toggleDrawingModeBtn.classList.replace('hover:bg-blue-600', 'hover:bg-red-600');
+                    drawingControls.classList.remove('hidden');
+                    canvasOuterContainer.classList.add('drawing-mode-active');
+                    fabricCanvas.discardActiveObject();
+                    objectControls.classList.add('hidden');
+                    fabricCanvas.renderAll();
+                } else {
+                    toggleDrawingModeBtn.textContent = 'Ativar Desenho';
+                    toggleDrawingModeBtn.classList.replace('bg-red-500', 'bg-blue-500');
+                    toggleDrawingModeBtn.classList.replace('hover:bg-red-600', 'hover:bg-blue-600');
+                    drawingControls.classList.add('hidden');
+                    canvasOuterContainer.classList.remove('drawing-mode-active');
+                }
+            });
+
+            brushSelector.addEventListener('change', (e) => {
+                const selectedBrushKey = e.target.value;
+                if (brushes[selectedBrushKey]) {
+                    fabricCanvas.freeDrawingBrush = brushes[selectedBrushKey];
+                    fabricCanvas.freeDrawingBrush.color = activeColor;
+                    fabricCanvas.freeDrawingBrush.width = parseInt(brushWidthSlider.value, 10);
+                    try { fabricCanvas.freeDrawingBrush.opacity = parseFloat(brushOpacitySlider.value); } catch (err) {}
+                    brushOpacitySlider.disabled = selectedBrushKey === 'pencil';
+                }
+            });
+
+            brushWidthSlider.addEventListener('input', (e) => {
+                const width = parseInt(e.target.value, 10);
+                fabricCanvas.freeDrawingBrush.width = width;
+                brushWidthValue.textContent = width;
+            });
+
+            brushOpacitySlider.addEventListener('input', (e) => {
+                const opacity = parseFloat(e.target.value);
+                brushOpacityValue.textContent = opacity.toFixed(1);
+                try { fabricCanvas.freeDrawingBrush.opacity = opacity; } catch (err) {}
+            });
+
+            // Fabric object selection controls
+            fabricCanvas.on('selection:created', () => { if (!fabricCanvas.isDrawingMode) objectControls.classList.remove('hidden'); });
+            fabricCanvas.on('selection:updated', () => { if (!fabricCanvas.isDrawingMode) objectControls.classList.remove('hidden'); });
+            fabricCanvas.on('selection:cleared', () => { objectControls.classList.add('hidden'); });
+
+            // --- Adicionar Formas 2D (Drag and Drop) ---
+            const toolButtons = document.querySelectorAll('#shape-selector-2d .tool-button[draggable="true"]');
+            let draggedShapeType = null;
+            toolButtons.forEach(button => {
+                button.addEventListener('dragstart', (e) => {
+                    if (fabricCanvas.isDrawingMode) { e.preventDefault(); return; }
+                    draggedShapeType = e.target.dataset.shape;
+                    e.dataTransfer.setData('text/plain', draggedShapeType);
+                    e.dataTransfer.effectAllowed = 'copy';
+                    e.target.classList.add('dragging');
+                });
+                button.addEventListener('dragend', (e) => {
+                    e.target.classList.remove('dragging');
+                    draggedShapeType = null;
+                });
+            });
+            canvasOuterContainer.addEventListener('drop', (e) => {
+                e.preventDefault();
+                if (!draggedShapeType || fabricCanvas.isDrawingMode) return;
+                const pointer = fabricCanvas.getPointer(e.originalEvent || e);
+                createAndAddFabricShape(draggedShapeType, pointer.x, pointer.y);
+                draggedShapeType = null;
+            });
+            canvasOuterContainer.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+            });
+
+            // --- Funções de Criação de Formas (Fabric.js) ---
+            function createAndAddFabricShape(shapeType, x, y) {
+                let shape;
+                const config = { left: x, top: y, originX: 'center', originY: 'center', fill: activeColor, shadow: 'rgba(0,0,0,0.3) 3px 3px 5px', padding: 5 };
+                switch (shapeType) {
+                    case 'circle': shape = new fabric.Circle({ ...config, radius: 30 }); break;
+                    case 'square': shape = new fabric.Rect({ ...config, width: 50, height: 50 }); break;
+                    case 'triangle': shape = new fabric.Triangle({ ...config, width: 60, height: 50 }); break;
+                    case 'ellipse': shape = new fabric.Ellipse({ ...config, rx: 40, ry: 25 }); break;
+                    case 'line': shape = new fabric.Line([0, 0, 60, 0], { ...config, stroke: activeColor, fill: null, shadow: null, strokeWidth: 5 }); break;
+                    case 'star': shape = createFabricStar(config); break;
+                }
+                if (shape) { fabricCanvas.add(shape); fabricCanvas.setActiveObject(shape); fabricCanvas.renderAll(); }
+            }
+            function createFabricStar(config, points = 5, outerRadius = 30, innerRadius = 15) {
+                const angle = (Math.PI * 2) / (points * 2); const pts = [];
+                for (let i = 0; i < points * 2; i++) { 
+                    const radius = i % 2 === 0 ? outerRadius : innerRadius; 
+                    const x = radius * Math.sin(i * angle); 
+                    const y = -radius * Math.cos(i * angle); 
+                    pts.push({ x: x, y: y }); 
+                }
+                return new fabric.Polygon(pts, { ...config });
+            }
+            function updateShapeAppearance(target) {
+                if (!target) return; const baseColor = activeColor;
+                const updateObject = (obj) => {
+                    if (obj.type === 'line') { obj.set('stroke', baseColor); }
+                    else if (obj.fill && typeof obj.fill === 'string') {
+                        obj.set('fill', baseColor);
+                    }
+                };
+                if (target.type === 'activeSelection') { target.getObjects().forEach(updateObject); } else { updateObject(target); }
+                fabricCanvas.renderAll();
+            }
+
+            // --- Ações Principais (Fabric.js Canvas) ---
+            document.getElementById('clearCanvasBtn').addEventListener('click', () => {
+                if (confirm('Tem certeza que deseja limpar toda a sua criação?')) {
+                    fabricCanvas.clear(); 
+                    fabricCanvas.backgroundColor = '#f0f0f0'; 
+                    fabricCanvas.renderAll();
+                    // Como os controles de Exploração foram removidos, não há necessidade de limpar Feedback ou Descrição
+                }
+            });
+
+            // Exportação: Botões na coluna direita
+            document.getElementById('savePngBtn').addEventListener('click', () => {
+                fabricCanvas.discardActiveObject(); 
+                fabricCanvas.renderAll();
+                setTimeout(() => {
+                    html2canvas(canvasOuterContainer, { logging: false, useCORS: true, backgroundColor: '#ffffff' })
+                    .then(canvasSnapshot => {
+                        const imageURL = canvasSnapshot.toDataURL('image/png'); 
+                        const downloadLink = document.createElement('a'); 
+                        downloadLink.href = imageURL; 
+                        downloadLink.download = `minha-criacao-emocional-${Date.now()}.png`; 
+                        document.body.appendChild(downloadLink); 
+                        downloadLink.click(); 
+                        document.body.removeChild(downloadLink);
+                    }).catch(error => { console.error("Erro ao salvar imagem:", error); alert("Erro ao salvar imagem."); });
+                }, 100);
+            });
+            document.getElementById('saveJpegBtn').addEventListener('click', () => {
+                fabricCanvas.discardActiveObject(); 
+                fabricCanvas.renderAll();
+                setTimeout(() => {
+                    html2canvas(canvasOuterContainer, { logging: false, useCORS: true, backgroundColor: '#ffffff' })
+                    .then(canvasSnapshot => {
+                        const imageURL = canvasSnapshot.toDataURL('image/jpeg'); 
+                        const downloadLink = document.createElement('a'); 
+                        downloadLink.href = imageURL; 
+                        downloadLink.download = `minha-criacao-emocional-${Date.now()}.jpeg`; 
+                        document.body.appendChild(downloadLink); 
+                        downloadLink.click(); 
+                        document.body.removeChild(downloadLink);
+                    }).catch(error => { console.error("Erro ao salvar imagem:", error); alert("Erro ao salvar imagem."); });
+                }, 100);
+            });
+
+            document.getElementById('bringForwardBtn').addEventListener('click', () => { 
+                const obj = fabricCanvas.getActiveObject(); 
+                if (obj) { fabricCanvas.bringForward(obj); fabricCanvas.renderAll(); } 
+            });
+            document.getElementById('sendBackwardsBtn').addEventListener('click', () => { 
+                const obj = fabricCanvas.getActiveObject(); 
+                if (obj) { fabricCanvas.sendBackwards(obj); fabricCanvas.renderAll(); } 
+            });
+            document.getElementById('deleteBtn').addEventListener('click', deleteSelectedFabricObject);
+            window.addEventListener('keydown', (e) => {
+                if (document.activeElement !== document.getElementById('emotionalDescription') && (e.key === 'Delete' || e.key === 'Backspace')) {
+                    const fabricContainerActive = document.activeElement === fabricCanvas.getElement().parentNode || fabricCanvas.getActiveObject();
+                    if (fabricContainerActive) {
+                        deleteSelectedFabricObject();
+                    }
+                    const isGuiFocused = document.activeElement && document.activeElement.closest('.dg.main');
+                    if (isGuiFocused) {
+                        e.stopPropagation();
+                    }
+                }
+            });
+            function deleteSelectedFabricObject() {
+                const activeObject = fabricCanvas.getActiveObject();
+                if (!activeObject) return;
+                if (activeObject.type === 'activeSelection') {
+                    activeObject.getObjects().forEach(obj => fabricCanvas.remove(obj));
+                } else {
+                    fabricCanvas.remove(activeObject);
+                }
+                fabricCanvas.discardActiveObject();
+                fabricCanvas.renderAll();
+            }
+        });
+    </script>
+
+    <!-- Script para a Visualização 3D com Editor (Three.js + dat.GUI) -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        let scene, camera, renderer, composer, bloomPass;
+        let geometryGroup;
+        let singleMesh;
+        let sharedGeometry, sharedMaterial;
+        let ambientLight, directionalLight;
+        let controls;
+        const clock = new THREE.Clock();
+        let raycaster, mouse, hoveredObject = null, baseColor = new THREE.Color(), baseEmissive = new THREE.Color();
+        let pulseStartTime = -Infinity;
+        let container;
+        let gui;
+        const params = {
+            geometryType: 'Torus',
+            primarySize: 15,
+            tubeRadius: 6,
+            detailSegments: 12,
+            tubeSegments: 24,
+            rotationSpeed: 0.4,
+            oscillationSpeed: 0.5,
+            oscillationAmplitude: 5,
+            color: '#00aaff',
+            emissiveColor: '#003366',
+            colorCycleSpeed: 0.15,
+            emissiveCycleSpeed: 0.20,
+            emissiveIntensity: 0.8,
+            metalness: 0.7,
+            roughness: 0.3,
+            wireframe: false,
+            enableMouseInteraction: true,
+            hoverScale: 1.2,
+            pulseIntensity: 1.5,
+            pulseDuration: 1.0,
+            triggerPulse: () => { pulseStartTime = clock.getElapsedTime(); },
+            ambientLightIntensity: 0.5,
+            directionalLightIntensity: 1.2,
+            directionalLightColor: '#ffffff',
+            dynamicLightIntensity: 0.3,
+            dynamicLightSpeed: 1.5,
+            bloomEnabled: true,
+            bloomThreshold: 0.1,
+            bloomStrength: 0.5,
+            bloomRadius: 0.3,
+            enableFog: false,
+            fogNear: 50,
+            fogFar: 200,
+            fogColor: '#000000',
+            recreateGeometry: () => createOrUpdateGeometry()
+        };
+
+        function init() {
+            container = document.getElementById('shape-selector-3d');
+            if (!container) {
+                console.error("3D container '#shape-selector-3d' not found!");
+                return;
+            }
+            scene = new THREE.Scene();
+            updateFog();
+            const width = container.offsetWidth;
+            const height = container.offsetHeight;
+            camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 500);
+            camera.position.set(0, 10, 45);
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.toneMapping = THREE.ReinhardToneMapping;
+            container.appendChild(renderer.domElement);
+            const renderScene = new RenderPass(scene, camera);
+            bloomPass = new UnrealBloomPass(new THREE.Vector2(width, height), params.bloomStrength, params.bloomRadius, params.bloomThreshold);
+            updateEffects();
+            composer = new EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
+            ambientLight = new THREE.AmbientLight(0xffffff, params.ambientLightIntensity);
+            scene.add(ambientLight);
+            directionalLight = new THREE.DirectionalLight(params.directionalLightColor, params.directionalLightIntensity);
+            directionalLight.position.set(0.5, 1, 0.75).normalize();
+            scene.add(directionalLight);
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2(-10, -10);
+            renderer.domElement.addEventListener('mousemove', onMouseMove);
+            renderer.domElement.addEventListener('mouseleave', onMouseLeave);
+            createOrUpdateGeometry();
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.1;
+            controls.minDistance = 10;
+            controls.maxDistance = 150;
+            controls.target.set(0, 0, 0);
+            controls.enablePan = false;
+            controls.enableZoom = true;
+            setupGUI();
+            const resizeObserver = new ResizeObserver(entries => {
+                for (let entry of entries) {
+                    if(entry.target === container) {
+                        onContainerResize();
+                    }
+                }
+            });
+            resizeObserver.observe(container);
+            animate();
+        }
+
+        function createOrUpdateGeometry() {
+            if (geometryGroup) {
+                scene.remove(geometryGroup);
+                if(singleMesh) geometryGroup.remove(singleMesh);
+                if (sharedGeometry) sharedGeometry.dispose();
+                if (sharedMaterial) sharedMaterial.dispose();
+                singleMesh = null;
+            }
+            geometryGroup = new THREE.Group();
+            try {
+                const detail = Math.round(params.detailSegments);
+                const tubeDetail = Math.round(params.tubeSegments);
+                const size = params.primarySize;
+                const tube = params.tubeRadius;
+                if (params.geometryType === 'Torus') {
+                    sharedGeometry = new THREE.TorusGeometry(size, tube, detail, tubeDetail);
+                } else if (params.geometryType === 'Sphere') {
+                    sharedGeometry = new THREE.SphereGeometry(size, detail * 2, detail);
+                } else if (params.geometryType === 'Box') {
+                    sharedGeometry = new THREE.BoxGeometry(size, size, size, detail, detail, detail);
+                } else {
+                    params.geometryType = 'Torus';
+                    sharedGeometry = new THREE.TorusGeometry(size, tube, detail, tubeDetail);
+                }
+            } catch (error) {
+                console.error("Error creating 3D Geometry:", error);
+                sharedGeometry = new THREE.BoxGeometry(10, 10, 10);
+            }
+            baseColor.set(params.color);
+            baseEmissive.set(params.emissiveColor);
+            sharedMaterial = new THREE.MeshStandardMaterial({
+                color: baseColor.clone(),
+                emissive: baseEmissive.clone(),
+                emissiveIntensity: params.emissiveIntensity,
+                metalness: params.metalness,
+                roughness: params.roughness,
+                wireframe: params.wireframe,
+                side: THREE.DoubleSide
+            });
+            singleMesh = new THREE.Mesh(sharedGeometry, sharedMaterial);
+            singleMesh.position.set(0, 0, 0);
+            singleMesh.userData.originalY = singleMesh.position.y;
+            singleMesh.userData.baseScale = 1;
+            singleMesh.userData.targetScale = 1;
+            geometryGroup.add(singleMesh);
+            scene.add(geometryGroup);
+            updateMaterialProperties();
+            updateLighting();
+            updateFog();
+        }
+
+        function updateMaterialProperties() {
+            if (!sharedMaterial) return;
+            baseColor.set(params.color);
+            baseEmissive.set(params.emissiveColor);
+            if (params.colorCycleSpeed === 0) sharedMaterial.color.copy(baseColor);
+            if (params.emissiveCycleSpeed === 0) sharedMaterial.emissive.copy(baseEmissive);
+            sharedMaterial.emissiveIntensity = params.emissiveIntensity;
+            sharedMaterial.metalness = params.metalness;
+            sharedMaterial.roughness = params.roughness;
+            sharedMaterial.wireframe = params.wireframe;
+            sharedMaterial.needsUpdate = true;
+        }
+
+        function updateLighting() {
+            if (ambientLight) ambientLight.intensity = params.ambientLightIntensity;
+            if (directionalLight) {
+                directionalLight.intensity = params.directionalLightIntensity;
+                directionalLight.color.set(params.directionalLightColor);
+            }
+        }
+
+        function updateFog() {
+            if (params.enableFog) {
+                if (!scene.fog || !(scene.fog instanceof THREE.Fog)) {
+                    scene.fog = new THREE.Fog(params.fogColor, params.fogNear, params.fogFar);
+                } else {
+                    scene.fog.color.set(params.fogColor);
+                    scene.fog.near = params.fogNear;
+                    scene.fog.far = params.fogFar;
+                }
+            } else {
+                scene.fog = null;
+            }
+        }
+
+        function updateEffects() {
+            if (!bloomPass) return;
+            bloomPass.enabled = params.bloomEnabled;
+            bloomPass.threshold = params.bloomThreshold;
+            bloomPass.strength = params.bloomStrength;
+            bloomPass.radius = params.bloomRadius;
+        }
+
+        function onMouseMove(event) {
+            if (!renderer || !container) return;
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        }
+        function onMouseLeave() {
+            mouse.x = -10; mouse.y = -10;
+            if (hoveredObject) {
+                hoveredObject.userData.targetScale = hoveredObject.userData.baseScale;
+                hoveredObject = null;
+            }
+        }
+
+        function setupGUI() {
+            if (typeof dat === 'undefined') {
+                console.error("dat.GUI library not found!");
+                return;
+            }
+            if (gui) {
+                try { gui.destroy(); } catch (e) {}
+            }
+            gui = new dat.GUI({ autoPlace: false });
+            gui.width = 240;
+            const geometryFolder = gui.addFolder('Geometry');
+            geometryFolder.add(params, 'geometryType', ['Torus', 'Sphere', 'Box']).name('Type').onChange(createOrUpdateGeometry);
+            geometryFolder.add(params, 'primarySize', 5, 50, 0.5).name('Size').onChange(createOrUpdateGeometry);
+            geometryFolder.add(params, 'tubeRadius', 0.1, 25, 0.1).name('Tube (Torus)').onChange(createOrUpdateGeometry);
+            geometryFolder.add(params, 'detailSegments', 3, 64, 1).name('Detail Segs').onChange(createOrUpdateGeometry);
+            geometryFolder.add(params, 'tubeSegments', 3, 64, 1).name('Tube Segs (Torus)').onChange(createOrUpdateGeometry);
+            geometryFolder.open();
+            const materialFolder = gui.addFolder('Material');
+            materialFolder.addColor(params, 'color').name('Base Color').onChange(updateMaterialProperties);
+            materialFolder.addColor(params, 'emissiveColor').name('Base Emissive').onChange(updateMaterialProperties);
+            materialFolder.add(params, 'colorCycleSpeed', 0, 1, 0.01).name('Color Cycle');
+            materialFolder.add(params, 'emissiveCycleSpeed', 0, 1, 0.01).name('Emissive Cycle');
+            materialFolder.add(params, 'emissiveIntensity', 0, 5, 0.1).name('Emissive Power').onChange(updateMaterialProperties);
+            materialFolder.add(params, 'metalness', 0, 1, 0.01).name('Metalness').onChange(updateMaterialProperties);
+            materialFolder.add(params, 'roughness', 0, 1, 0.01).name('Roughness').onChange(updateMaterialProperties);
+            materialFolder.add(params, 'wireframe').name('Wireframe').onChange(updateMaterialProperties);
+            const animationFolder = gui.addFolder('Animation');
+            animationFolder.add(params, 'rotationSpeed', 0, 5, 0.05).name('Rotation');
+            animationFolder.add(params, 'oscillationSpeed', 0, 5, 0.05).name('Oscillation Spd');
+            animationFolder.add(params, 'oscillationAmplitude', 0, 20, 0.5).name('Oscillation Amp');
+            animationFolder.add(params, 'triggerPulse').name('Trigger Pulse');
+            animationFolder.add(params, 'pulseIntensity', 0.1, 5, 0.1).name('Pulse Intensity');
+            animationFolder.add(params, 'pulseDuration', 0.1, 3, 0.1).name('Pulse Duration');
+            const interactionFolder = gui.addFolder('Interaction');
+            interactionFolder.add(params, 'enableMouseInteraction').name('Enable Hover');
+            interactionFolder.add(params, 'hoverScale', 1.0, 2.0, 0.05).name('Hover Scale');
+            const lightingFolder = gui.addFolder('Lighting');
+            lightingFolder.add(params, 'ambientLightIntensity', 0, 2, 0.05).name('Ambient').onChange(updateLighting);
+            lightingFolder.add(params, 'directionalLightIntensity', 0, 5, 0.1).name('Directional Base').onChange(updateLighting);
+            lightingFolder.addColor(params, 'directionalLightColor').name('Directional Color').onChange(updateLighting);
+            lightingFolder.add(params, 'dynamicLightIntensity', 0, 2, 0.05).name('Directional Pulse');
+            lightingFolder.add(params, 'dynamicLightSpeed', 0, 5, 0.1).name('Pulse Speed');
+            const effectsFolder = gui.addFolder('Effects (Bloom)');
+            effectsFolder.add(params, 'bloomEnabled').name('Enable Bloom').onChange(updateEffects);
+            effectsFolder.add(params, 'bloomThreshold', 0.0, 1.0, 0.01).name('Threshold').onChange(updateEffects);
+            effectsFolder.add(params, 'bloomStrength', 0.0, 3.0, 0.05).name('Strength').onChange(updateEffects);
+            effectsFolder.add(params, 'bloomRadius', 0.0, 2.0, 0.01).name('Radius').onChange(updateEffects);
+            container.appendChild(gui.domElement);
+        }
+
+        function onContainerResize() {
+            if (!container || !renderer || !camera || !composer || !bloomPass) return;
+            const width = container.offsetWidth;
+            const height = container.offsetHeight;
+            if (width === 0 || height === 0) return;
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+            composer.setSize(width, height);
+            bloomPass.setSize(width, height);
+        }
+
+        function animate() {
+            if (!renderer || !container || !document.contains(container)) {
+                console.log("Stopping 3D animation loop.");
+                if (gui) {
+                    try { gui.destroy(); } catch(e) {}
+                }
+                return;
+            }
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            const elapsed = clock.getElapsedTime();
+            if (params.enableMouseInteraction && geometryGroup && singleMesh && camera) {
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(geometryGroup.children);
+                if (intersects.length > 0) {
+                    const intersectedObject = intersects[0].object;
+                    if (hoveredObject !== intersectedObject) {
+                        if (hoveredObject) hoveredObject.userData.targetScale = hoveredObject.userData.baseScale;
+                        hoveredObject = intersectedObject;
+                        hoveredObject.userData.targetScale = params.hoverScale;
+                    }
+                } else {
+                    if (hoveredObject) { hoveredObject.userData.targetScale = hoveredObject.userData.baseScale; hoveredObject = null; }
+                }
+            } else {
+                if (hoveredObject) { hoveredObject.userData.targetScale = hoveredObject.userData.baseScale; hoveredObject = null; }
+            }
+            let pulseFactor = 1.0;
+            const timeSincePulse = elapsed - pulseStartTime;
+            if(timeSincePulse >= 0 && timeSincePulse < params.pulseDuration) {
+                pulseFactor = 1.0 + Math.sin((timeSincePulse / params.pulseDuration) * Math.PI) * (params.pulseIntensity - 1.0);
+            }
+            if (sharedMaterial) {
+                if (params.colorCycleSpeed > 0) {
+                    const currentHue = (elapsed * params.colorCycleSpeed) % 1;
+                    sharedMaterial.color.setHSL(currentHue, 1.0, 0.5);
+                    baseColor.copy(sharedMaterial.color);
+                } else {
+                    sharedMaterial.color.copy(baseColor);
+                }
+                if (params.emissiveCycleSpeed > 0) {
+                    const currentEmissiveHue = (elapsed * params.emissiveCycleSpeed * 0.7 + 0.3) % 1;
+                    sharedMaterial.emissive.setHSL(currentEmissiveHue, 0.8, 0.3);
+                    baseEmissive.copy(sharedMaterial.emissive);
+                } else {
+                    sharedMaterial.emissive.copy(baseEmissive);
+                }
+                sharedMaterial.emissiveIntensity = params.emissiveIntensity * pulseFactor;
+            }
+            if (singleMesh) {
+                singleMesh.rotation.x += params.rotationSpeed * delta * 0.8;
+                singleMesh.rotation.y += params.rotationSpeed * delta * 1.0;
+                singleMesh.rotation.z += params.rotationSpeed * delta * 0.6;
+                const oscFactor = Math.sin(elapsed * params.oscillationSpeed);
+                singleMesh.position.y = singleMesh.userData.originalY + oscFactor * params.oscillationAmplitude;
+                const targetScale = singleMesh.userData.targetScale !== undefined ? singleMesh.userData.targetScale : singleMesh.userData.baseScale;
+                if (singleMesh.scale) {
+                    singleMesh.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.1);
+                }
+            }
+            if (directionalLight) {
+                const lightPulse = Math.sin(elapsed * params.dynamicLightSpeed) * params.dynamicLightIntensity;
+                directionalLight.intensity = params.directionalLightIntensity + lightPulse;
+            }
+            controls.update();
+            composer.render(delta);
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    </script>
+
+    <!-- Script para o Gerador Kenë de Miçangas (resultado exibido na Tela de Expressão) -->
+    <script>
+        const resolutionSlider = document.getElementById('resolution');
+        const resValueSpan = document.getElementById('resValue');
+        let currentImage = null;
+        function drawBeadsFromImage(image, size) {
+            const tempCanvas = document.createElement('canvas');
+            const tCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = size;
+            tempCanvas.height = size;
+            tCtx.drawImage(image, 0, 0, size, size);
+            const imgData = tCtx.getImageData(0, 0, size, size).data;
+            const fabricWidth = window.fabricCanvas.getWidth();
+            const fabricHeight = window.fabricCanvas.getHeight();
+            const beadCanvas = document.createElement('canvas');
+            beadCanvas.width = fabricWidth;
+            beadCanvas.height = fabricHeight;
+            const ctx = beadCanvas.getContext('2d');
+            const beadSize = fabricWidth / size;
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                    const i = (y * size + x) * 4;
+                    const r = imgData[i], g = imgData[i+1], b = imgData[i+2];
+                    ctx.fillStyle = `rgb(${r},${g},${b})`;
+                    ctx.beginPath();
+                    ctx.arc(x * beadSize + beadSize / 2, y * beadSize + beadSize / 2, beadSize / 2.2, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+            }
+            const dataURL = beadCanvas.toDataURL("image/png");
+            fabric.Image.fromURL(dataURL, function(img) {
+                window.fabricCanvas.clear();
+                window.fabricCanvas.setBackgroundImage(img, window.fabricCanvas.renderAll.bind(window.fabricCanvas));
+            });
+        }
+        resolutionSlider.addEventListener('input', () => {
+            resValueSpan.textContent = resolutionSlider.value;
+            if (currentImage) drawBeadsFromImage(currentImage, parseInt(resolutionSlider.value, 10));
+        });
+        document.getElementById('imageInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const img = new Image();
+            img.onload = () => {
+                currentImage = img;
+                drawBeadsFromImage(img, parseInt(resolutionSlider.value, 10));
+            };
+            img.src = URL.createObjectURL(file);
+        });
+    </script>
+</body>
+</html>
